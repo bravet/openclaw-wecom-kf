@@ -359,6 +359,28 @@ export type DownloadResult = {
   error?: string;
 };
 
+// ─── KF Account Management Types ─────────────────────────────
+export type KfAccountInfo = {
+  open_kfid: string;
+  name: string;
+  avatar?: string;
+  manage_privilege?: boolean;
+};
+
+// ─── Servicer Management Types ───────────────────────────────
+export type ServicerInfo = {
+  userid: string;
+  status?: number; // 0=接待中 1=停止接待
+  department_id?: number;
+  stop_type?: number; // 0=手动停止 1=超出接待上限
+};
+
+export type ServicerResult = {
+  userid: string;
+  errcode: number;
+  errmsg: string;
+};
+
 // ─── OpenClaw Plugin API (latest) ───────────────────────────
 
 export interface OpenClawPluginApi {

@@ -21,6 +21,9 @@ import type {
   MediaType,
   DownloadResult,
   AccessTokenCacheEntry,
+  KfAccountInfo,
+  ServicerInfo,
+  ServicerResult,
 } from "./types.js";
 import {
   resolveApiBaseUrl,
@@ -349,6 +352,78 @@ export class WecomKfClient {
       external_userid_list: externalUserIds,
     });
     return data.customer_list ?? [];
+  }
+
+  // ─── KF Account Management ─────────────────────────────────
+
+  async addAccount(name: string, mediaId?: string): Promise<{ open_kfid: string }> {
+    const body: Record<string, unknown> = { name };
+    if (mediaId) body.media_id = mediaId;
+    return this.request<{ errcode?: number; errmsg?: string; open_kfid: string }>(
+      "/cgi-bin/kf/account/add", body
+    );
+  }
+
+  async deleteAccount(openKfId: string): Promise<void> {
+    await this.request("/cgi-bin/kf/account/del", { open_kfid: openKfId });
+  }
+
+  async updateAccount(openKfId: string, name?: string, mediaId?: string): Promise<void> {
+    const body: Record<string, unknown> = { open_kfid: openKfId };
+    if (name) body.name = name;
+    if (mediaId) body.media_id = mediaId;
+    await this.request("/cgi-bin/kf/account/update", body);
+  }
+
+  async listAccounts(offset?: number, limit?: number): Promise<{ account_list: KfAccountInfo[] }> {
+    const body: Record<string, unknown> = {};
+    if (offset !== undefined) body.offset = offset;
+    if (limit !== undefined) body.limit = limit;
+    const data = await this.request<{
+      errcode?: number; errmsg?: string;
+      account_list?: KfAccountInfo[];
+    }>("/cgi-bin/kf/account/list", body);
+    return { account_list: data.account_list ?? [] };
+  }
+
+  async getContactWay(openKfId: string, scene?: string): Promise<{ url: string }> {
+    const body: Record<string, unknown> = { open_kfid: openKfId };
+    if (scene) body.scene = scene;
+    return this.request<{ errcode?: number; errmsg?: string; url: string }>(
+      "/cgi-bin/kf/add_contact_way", body
+    );
+  }
+
+  // ─── Servicer Management ────────────────────────────────────
+
+  async addServicer(openKfId: string, userIds: string[]): Promise<ServicerResult[]> {
+    const data = await this.request<{
+      errcode?: number; errmsg?: string;
+      result_list?: ServicerResult[];
+    }>("/cgi-bin/kf/servicer/add", {
+      open_kfid: openKfId,
+      userid_list: userIds,
+    });
+    return data.result_list ?? [];
+  }
+
+  async deleteServicer(openKfId: string, userIds: string[]): Promise<ServicerResult[]> {
+    const data = await this.request<{
+      errcode?: number; errmsg?: string;
+      result_list?: ServicerResult[];
+    }>("/cgi-bin/kf/servicer/del", {
+      open_kfid: openKfId,
+      userid_list: userIds,
+    });
+    return data.result_list ?? [];
+  }
+
+  async listServicer(openKfId: string): Promise<ServicerInfo[]> {
+    const data = await this.request<{
+      errcode?: number; errmsg?: string;
+      servicer_list?: ServicerInfo[];
+    }>("/cgi-bin/kf/servicer/list", { open_kfid: openKfId });
+    return data.servicer_list ?? [];
   }
 
   // ─── Media Upload ──────────────────────────────────────────
