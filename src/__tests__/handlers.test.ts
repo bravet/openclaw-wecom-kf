@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { getHandler, extractContent } from "../handlers/registry.js";
-import type { SyncMsgText, SyncMsgImage, SyncMsgLocation } from "../types.js";
+import type { SyncMsgText, SyncMsgImage, SyncMsgLocation, SyncMsgEvent } from "../types.js";
 
 // Import all handlers to trigger registration
 import "../handlers/text.js";
@@ -48,5 +48,68 @@ describe("extractContent", () => {
   it("returns [msgtype] for unknown types", () => {
     const msg = { ...BASE, msgtype: "unknown_type" } as any;
     expect(extractContent(msg)).toBe("[unknown_type]");
+  });
+});
+
+describe("event handler", () => {
+  const handler = getHandler("event")!;
+
+  it("extracts event type from event message", () => {
+    const msg: SyncMsgEvent = {
+      ...BASE,
+      msgtype: "event",
+      event: { event_type: "enter_session", welcome_code: "wc1" },
+    };
+    expect(handler.extract(msg)).toBe("[event] enter_session");
+  });
+
+  it("handles enter_session with welcome text", async () => {
+    const mockClient = {
+      sendOnEvent: vi.fn().mockResolvedValue({ errcode: 0 }),
+      transferSession: vi.fn().mockResolvedValue(undefined),
+    };
+    const mockAccount = { config: { welcomeText: "Welcome!" } } as any;
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    const msg: SyncMsgEvent = {
+      ...BASE,
+      msgtype: "event",
+      event: { event_type: "enter_session", welcome_code: "wc123" },
+    };
+
+    await handler.handle!(msg, mockClient as any, mockAccount, mockLogger);
+
+    expect(mockClient.sendOnEvent).toHaveBeenCalledWith("wc123", "text", {
+      text: { content: "Welcome!" },
+    });
+    expect(mockClient.transferSession).toHaveBeenCalledWith("wk1", "u1", 1);
+  });
+
+  it("handles msg_send_fail event", async () => {
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const msg: SyncMsgEvent = {
+      ...BASE,
+      msgtype: "event",
+      event: { event_type: "msg_send_fail", fail_msgid: "mid1", fail_type: 1 },
+    };
+
+    await handler.handle!(msg, {} as any, {} as any, mockLogger);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("msg_send_fail")
+    );
+  });
+
+  it("handles recall_msg event", async () => {
+    const mockLogger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const msg: SyncMsgEvent = {
+      ...BASE,
+      msgtype: "event",
+      event: { event_type: "recall_msg", recall_msgid: "mid_recalled" },
+    };
+
+    await handler.handle!(msg, {} as any, {} as any, mockLogger);
+    expect(mockLogger.info).toHaveBeenCalledWith(
+      expect.stringContaining("recall_msg")
+    );
   });
 });

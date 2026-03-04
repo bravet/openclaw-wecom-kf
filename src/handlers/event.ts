@@ -39,6 +39,11 @@ registerHandler("event", {
       return;
     }
 
+    if (eventType === "recall_msg") {
+      logger?.info(`recall_msg: recall_msgid=${evt?.recall_msgid} by ${msg.external_userid ?? "?"}`);
+      return;
+    }
+
     if (eventType === "servicer_status_change" || eventType === "session_status_change") {
       logger?.info(`event: ${eventType} for ${msg.external_userid ?? "?"}`);
       return;

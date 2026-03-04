@@ -465,6 +465,69 @@ export const wecomKfPlugin = {
         };
       }
     },
+    sendStructured: async (params: {
+      cfg: PluginConfig;
+      accountId?: string;
+      to: string;
+      msgtype: string;
+      content: Record<string, unknown>;
+    }) => {
+      const account = resolveAccount(params.cfg, params.accountId);
+      if (!account.canSendActive) {
+        return {
+          channel: "wecom-kf",
+          ok: false,
+          messageId: "",
+          error: new Error(
+            "Account not configured for active sending (missing corpId or corpSecret)"
+          ),
+        };
+      }
+      if (!account.openKfId) {
+        return {
+          channel: "wecom-kf",
+          ok: false,
+          messageId: "",
+          error: new Error(
+            "openKfId required for outbound sending but not configured"
+          ),
+        };
+      }
+      const parsed = parseDirectTarget(params.to);
+      if (!parsed) {
+        return {
+          channel: "wecom-kf",
+          ok: false,
+          messageId: "",
+          error: new Error(`Unsupported target for WeCom KF: ${params.to}`),
+        };
+      }
+      try {
+        const client = new WecomKfClient(account);
+        const result = await client.sendMessage({
+          touser: parsed.userId,
+          open_kfid: account.openKfId,
+          msgtype: params.msgtype,
+          [params.msgtype]: params.content,
+        });
+        return {
+          channel: "wecom-kf",
+          ok: result.errcode === 0,
+          messageId: result.msgid ?? "",
+          error:
+            result.errcode !== 0
+              ? new Error(result.errmsg ?? "send failed")
+              : undefined,
+        };
+      } catch (err) {
+        return {
+          channel: "wecom-kf",
+          ok: false,
+          messageId: "",
+          error: err instanceof Error ? err : new Error(String(err)),
+        };
+      }
+    },
   },
   gateway: {
     startAccount: async (ctx: {

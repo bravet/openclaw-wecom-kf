@@ -50,6 +50,13 @@ export type {
   CustomerInfo,
   MediaType,
   DownloadResult,
+  KfAccountInfo,
+  ServicerInfo,
+  ServicerResult,
+  OutboundLink,
+  OutboundMiniprogram,
+  OutboundMsgMenu,
+  OutboundLocation,
 } from "./types.js";
 
 // ─── Plugin Entry ───────────────────────────────────────────
