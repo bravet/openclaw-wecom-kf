@@ -461,7 +461,7 @@ export async function handleWecomKfRoute(ctx: HttpRouteContext): Promise<void> {
         receiveId: target.account.corpId,
         encrypt,
       });
-      logger.debug(`callback decrypted (first 500 chars): ${plaintext.slice(0, 500)}`);
+      logger.debug(`callback decrypted OK (length=${plaintext.length})`);
       if (isXmlFormat(plaintext)) {
         const xmlData = parseXmlBody(plaintext);
         logger.debug(`callback parsed XML fields: ${JSON.stringify(Object.keys(xmlData))}`);

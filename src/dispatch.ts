@@ -212,22 +212,35 @@ export async function dispatchKfMessage(params: {
   // Resolve openKfId for reply
   const openKfId = msgOpenKfId ?? account.openKfId;
 
-  // ─── Immediate acknowledgment ──────────────────────────────
+  // ─── Deferred thinking text ────────────────────────────────
+  // Only send the "thinking" acknowledgment if AI takes longer than
+  // THINKING_DELAY_MS to produce the first reply chunk. Once the first
+  // chunk arrives, the timer is cancelled so the user never sees a
+  // redundant "thinking" message before the actual answer.
+  const THINKING_DELAY_MS = 3000;
   const thinkingText = accountConfig.thinkingText ?? "收到，让我想想...";
+  let thinkingSent = false;
+  let firstChunkDelivered = false;
+  let thinkingTimer: ReturnType<typeof setTimeout> | undefined;
+
   if (thinkingText && account.canSendActive && openKfId) {
-    try {
-      await client.sendMessage({
-        touser: senderId,
-        open_kfid: openKfId,
-        msgtype: "text",
-        text: { content: thinkingText },
-      });
-    } catch (err) {
-      logger.warn(`ack message failed: ${String(err)}`);
-    }
+    thinkingTimer = setTimeout(async () => {
+      if (firstChunkDelivered) return; // AI already responded, skip
+      try {
+        await client.sendMessage({
+          touser: senderId,
+          open_kfid: openKfId,
+          msgtype: "text",
+          text: { content: thinkingText },
+        });
+        thinkingSent = true;
+      } catch (err) {
+        logger.warn(`thinking message failed: ${String(err)}`);
+      }
+    }, THINKING_DELAY_MS);
   }
 
-  // ─── Stream reply chunks ───────────────────────────────────
+  // ─── Dispatch reply via framework ──────────────────────────
   let chunksSent = 0;
   const startMs = Date.now();
 
@@ -239,26 +252,59 @@ export async function dispatchKfMessage(params: {
         const rawText = payload.text ?? "";
         if (!rawText.trim()) return;
         if (!account.canSendActive || !openKfId) return;
+
+        // Cancel deferred thinking on first real content
+        if (!firstChunkDelivered) {
+          firstChunkDelivered = true;
+          if (thinkingTimer) {
+            clearTimeout(thinkingTimer);
+            thinkingTimer = undefined;
+          }
+        }
+
         try {
           const result = await client.sendText(senderId, rawText, openKfId);
           if (result.errcode === 0) {
             chunksSent += result.sentChunks;
           } else {
-            logger.error(`stream chunk failed: errcode=${result.errcode} ${result.errmsg ?? ""}`);
+            logger.error(`reply chunk failed: errcode=${result.errcode} ${result.errmsg ?? ""}`);
           }
         } catch (err) {
-          logger.error(`stream chunk failed: ${String(err)}`);
+          logger.error(`reply chunk failed: ${String(err)}`);
         }
       },
       onError: (err, info) => {
-        logger.error(`${info.kind} reply failed: ${String(err)}`);
+        logger.error(`${info.kind} reply error: ${String(err)}`);
       },
     },
   });
 
+  // Clean up thinking timer if still pending
+  if (thinkingTimer) {
+    clearTimeout(thinkingTimer);
+    thinkingTimer = undefined;
+  }
+
   const elapsedMs = Date.now() - startMs;
-  if (chunksSent > 0) {
-    logger.info(`streaming reply to ${senderId}: ${chunksSent} chunks in ${elapsedMs}ms`);
+  logger.info(
+    `reply to ${senderId}: ${chunksSent} chunks in ${elapsedMs}ms` +
+    (thinkingSent ? " (thinking msg sent)" : "")
+  );
+
+  // ─── Fallback: no reply produced ──────────────────────────
+  if (chunksSent === 0 && account.canSendActive && openKfId && !thinkingSent) {
+    // AI produced no visible output; send a minimal acknowledgment
+    // so the user doesn't stare at silence.
+    try {
+      await client.sendMessage({
+        touser: senderId,
+        open_kfid: openKfId,
+        msgtype: "text",
+        text: { content: "暂时无法回复，请稍后再试。" },
+      });
+    } catch (err) {
+      logger.warn(`fallback message failed: ${String(err)}`);
+    }
   }
 
   // Prune old media files (non-blocking)
