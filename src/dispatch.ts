@@ -12,8 +12,40 @@ import type {
   SyncMsgItem,
 } from "./types.js";
 import { resolveDmPolicy, resolveAllowFrom, checkDmPolicy } from "./config.js";
-import { WecomKfClient } from "./client.js";
+import { WecomKfClient, stripMarkdown } from "./client.js";
 import { enrichMessage } from "./handlers/registry.js";
+
+// ─── Progressive Send ────────────────────────────────────────
+// Split text into paragraph-level segments and send each as a
+// separate WeChat message with a human-paced delay in between,
+// so the user sees the reply appear incrementally.
+
+const PARAGRAPH_DELAY_MS = 800;
+
+function splitIntoParagraphs(text: string): string[] {
+  // Split on double newlines (paragraph boundaries)
+  const raw = text.split(/\n{2,}/);
+  const segments: string[] = [];
+  let buf = "";
+  for (const para of raw) {
+    const trimmed = para.trim();
+    if (!trimmed) continue;
+    const next = buf ? `${buf}\n\n${trimmed}` : trimmed;
+    // Keep segments ≤ 800 chars so each WeChat message is short
+    if (Buffer.byteLength(next, "utf8") > 800 && buf) {
+      segments.push(buf);
+      buf = trimmed;
+    } else {
+      buf = next;
+    }
+  }
+  if (buf) segments.push(buf);
+  return segments.length > 0 ? segments : [text.trim()];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Import all handlers to trigger registration
 import "./handlers/text.js";
@@ -262,15 +294,30 @@ export async function dispatchKfMessage(params: {
           }
         }
 
-        try {
-          const result = await client.sendText(senderId, rawText, openKfId);
-          if (result.errcode === 0) {
-            chunksSent += result.sentChunks;
-          } else {
-            logger.error(`reply chunk failed: errcode=${result.errcode} ${result.errmsg ?? ""}`);
+        // Progressive send: split into paragraphs and send each
+        // as a separate message with a short delay in between.
+        const plain = stripMarkdown(rawText);
+        const segments = splitIntoParagraphs(plain);
+
+        for (let i = 0; i < segments.length; i++) {
+          if (i > 0) await sleep(PARAGRAPH_DELAY_MS);
+          try {
+            const result = await client.sendMessage({
+              touser: senderId,
+              open_kfid: openKfId,
+              msgtype: "text",
+              text: { content: segments[i]! },
+            });
+            if (result.errcode === 0) {
+              chunksSent++;
+            } else {
+              logger.error(`reply chunk failed: errcode=${result.errcode} ${result.errmsg ?? ""}`);
+              break;
+            }
+          } catch (err) {
+            logger.error(`reply chunk failed: ${String(err)}`);
+            break;
           }
-        } catch (err) {
-          logger.error(`reply chunk failed: ${String(err)}`);
         }
       },
       onError: (err, info) => {
