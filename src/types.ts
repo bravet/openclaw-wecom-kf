@@ -381,6 +381,40 @@ export type ServicerResult = {
   errmsg: string;
 };
 
+// ─── Outbound Message Types ──────────────────────────────────
+
+export type OutboundLink = {
+  title: string;
+  desc?: string;
+  url: string;
+  thumb_media_id?: string;
+};
+
+export type OutboundMiniprogram = {
+  appid: string;
+  title?: string;
+  thumb_media_id?: string;
+  pagepath?: string;
+};
+
+export type OutboundMsgMenu = {
+  head_content?: string;
+  tail_content?: string;
+  list: Array<{
+    type: "click" | "view" | "miniprogram";
+    click?: { id: string; content: string };
+    view?: { url: string; content: string };
+    miniprogram?: { appid: string; pagepath: string; content: string };
+  }>;
+};
+
+export type OutboundLocation = {
+  latitude: number;
+  longitude: number;
+  name: string;
+  address?: string;
+};
+
 // ─── OpenClaw Plugin API (latest) ───────────────────────────
 
 export interface OpenClawPluginApi {

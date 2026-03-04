@@ -24,6 +24,10 @@ import type {
   KfAccountInfo,
   ServicerInfo,
   ServicerResult,
+  OutboundLink,
+  OutboundMiniprogram,
+  OutboundMsgMenu,
+  OutboundLocation,
 } from "./types.js";
 import {
   resolveApiBaseUrl,
@@ -312,6 +316,40 @@ export class WecomKfClient {
       msgtype,
       ...content,
     });
+  }
+
+  // ─── Typed Send Helpers ────────────────────────────────────
+
+  async sendImage(toUser: string, mediaId: string, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "image", image: { media_id: mediaId } });
+  }
+
+  async sendVoice(toUser: string, mediaId: string, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "voice", voice: { media_id: mediaId } });
+  }
+
+  async sendVideo(toUser: string, mediaId: string, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "video", video: { media_id: mediaId } });
+  }
+
+  async sendFile(toUser: string, mediaId: string, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "file", file: { media_id: mediaId } });
+  }
+
+  async sendLink(toUser: string, link: OutboundLink, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "link", link });
+  }
+
+  async sendMiniprogram(toUser: string, mini: OutboundMiniprogram, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "miniprogram", miniprogram: mini });
+  }
+
+  async sendMsgMenu(toUser: string, menu: OutboundMsgMenu, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "msgmenu", msgmenu: menu });
+  }
+
+  async sendLocation(toUser: string, loc: OutboundLocation, openKfId: string): Promise<KfSendMsgResult> {
+    return this.sendMessage({ touser: toUser, open_kfid: openKfId, msgtype: "location", location: loc });
   }
 
   // ─── Session State ─────────────────────────────────────────

@@ -8,7 +8,7 @@
  * POST: 事件回调 → 立即返回 200 "success" → 异步拉取消息
  */
 
-import type { IncomingMessage, ServerResponse } from "http";
+import type { IncomingMessage } from "http";
 import { readFile, writeFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
@@ -117,19 +117,6 @@ function isDuplicate(msgid: string): boolean {
 }
 
 // ─── HTTP Helpers ───────────────────────────────────────────
-
-function resolvePath(req: IncomingMessage): string {
-  const raw = req.url ?? "/";
-  const qIdx = raw.indexOf("?");
-  const path = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
-  return normalizeWebhookPath(path);
-}
-
-function resolveQueryParams(req: IncomingMessage): URLSearchParams {
-  const raw = req.url ?? "/";
-  const qIdx = raw.indexOf("?");
-  return new URLSearchParams(qIdx >= 0 ? raw.slice(qIdx + 1) : "");
-}
 
 function readRawBody(
   req: IncomingMessage,
@@ -322,21 +309,17 @@ async function pullAndDispatchMessages(
   }
 }
 
-// ─── Main HTTP Handler ──────────────────────────────────────
+// ─── Route Handler for registerHttpRoute API ────────────────
 
-async function handleWecomKfWebhookRequest(
-  req: IncomingMessage,
-  res: ServerResponse
-): Promise<boolean> {
-  const path = resolvePath(req);
+export async function handleWecomKfRoute(ctx: HttpRouteContext): Promise<void> {
+  const path = normalizeWebhookPath(ctx.path);
   const targets = webhookTargets.get(path);
-  if (!targets || targets.length === 0) return false;
+  if (!targets || targets.length === 0) return;
 
-  const query = resolveQueryParams(req);
+  const { req, res, query } = ctx;
   const timestamp = query.get("timestamp") ?? "";
   const nonce = query.get("nonce") ?? "";
-  const signature =
-    query.get("msg_signature") ?? query.get("signature") ?? "";
+  const signature = query.get("msg_signature") ?? query.get("signature") ?? "";
   const primary = targets[0]!;
   const logger = createLocalLogger("wecom-kf", {
     log: primary.runtime.log,
@@ -349,10 +332,9 @@ async function handleWecomKfWebhookRequest(
     if (!timestamp || !nonce || !signature || !echostr) {
       res.statusCode = 400;
       res.end("missing query params");
-      return true;
+      return;
     }
 
-    // Find matching account by signature
     const matched = targets.filter((t) => {
       if (!t.account.token) return false;
       return verifyWecomSignature({
@@ -367,15 +349,14 @@ async function handleWecomKfWebhookRequest(
     if (matched.length === 0) {
       res.statusCode = 401;
       res.end("unauthorized");
-      return true;
+      return;
     }
 
-    // Decrypt echostr
     const target = matched[0]!;
     if (!target.account.encodingAESKey) {
       res.statusCode = 401;
       res.end("unauthorized");
-      return true;
+      return;
     }
 
     try {
@@ -387,12 +368,12 @@ async function handleWecomKfWebhookRequest(
       res.statusCode = 200;
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.end(plaintext);
-      return true;
+      return;
     } catch (err) {
       logger.error(`echostr decrypt failed: ${String(err)}`);
       res.statusCode = 400;
       res.end("decrypt failed");
-      return true;
+      return;
     }
   }
 
@@ -401,20 +382,20 @@ async function handleWecomKfWebhookRequest(
     res.statusCode = 405;
     res.setHeader("Allow", "GET, POST");
     res.end("Method Not Allowed");
-    return true;
+    return;
   }
 
   if (!timestamp || !nonce || !signature) {
     res.statusCode = 400;
     res.end("missing query params");
-    return true;
+    return;
   }
 
   const body = await readRawBody(req, 1024 * 1024);
   if (!body.ok || !body.raw) {
     res.statusCode = body.error === "payload too large" ? 413 : 400;
     res.end(body.error ?? "invalid payload");
-    return true;
+    return;
   }
 
   const rawBody = body.raw;
@@ -436,17 +417,16 @@ async function handleWecomKfWebhookRequest(
     } catch {
       res.statusCode = 400;
       res.end("invalid payload format");
-      return true;
+      return;
     }
   }
 
   if (!encrypt) {
     res.statusCode = 400;
     res.end("missing encrypt");
-    return true;
+    return;
   }
 
-  // Verify signature
   const signatureMatched = targets.filter((t) => {
     if (!t.account.token) return false;
     return verifyWecomSignature({
@@ -461,7 +441,7 @@ async function handleWecomKfWebhookRequest(
   if (signatureMatched.length === 0) {
     res.statusCode = 401;
     res.end("unauthorized");
-    return true;
+    return;
   }
 
   // Respond immediately (< 5 seconds requirement)
@@ -481,7 +461,6 @@ async function handleWecomKfWebhookRequest(
         receiveId: target.account.corpId,
         encrypt,
       });
-      // Parse decrypted callback content (XML or JSON)
       logger.debug(`callback decrypted (first 500 chars): ${plaintext.slice(0, 500)}`);
       if (isXmlFormat(plaintext)) {
         const xmlData = parseXmlBody(plaintext);
@@ -489,7 +468,6 @@ async function handleWecomKfWebhookRequest(
         callbackToken = xmlData.Token;
         callbackOpenKfId = xmlData.OpenKfId;
       } else {
-        // Try JSON format
         try {
           const jsonData = JSON.parse(plaintext);
           logger.debug(`callback parsed JSON keys: ${JSON.stringify(Object.keys(jsonData))}`);
@@ -499,7 +477,6 @@ async function handleWecomKfWebhookRequest(
           logger.warn(`callback plaintext is neither XML nor JSON`);
         }
       }
-      // Ensure empty strings are treated as undefined
       if (!callbackToken) callbackToken = undefined;
       if (!callbackOpenKfId) callbackOpenKfId = undefined;
       logger.info(
@@ -515,13 +492,4 @@ async function handleWecomKfWebhookRequest(
   pullAndDispatchMessages(target, callbackToken, callbackOpenKfId).catch((err) => {
     logger.error(`pullAndDispatch failed: ${String(err)}`);
   });
-
-  return true;
-}
-
-// ─── Route Handler for registerHttpRoute API ────────────────
-
-export async function handleWecomKfRoute(ctx: HttpRouteContext): Promise<void> {
-  // Delegate to existing handler, ignore return value
-  await handleWecomKfWebhookRequest(ctx.req, ctx.res);
 }
