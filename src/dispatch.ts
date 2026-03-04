@@ -280,8 +280,11 @@ export async function dispatchKfMessage(params: {
     ctx: ctxPayload,
     cfg: safeCfg,
     dispatcherOptions: {
-      deliver: async (payload) => {
+      deliver: async (payload, info) => {
         const rawText = payload.text ?? "";
+        logger.debug(
+          `deliver called: kind=${(info as any)?.kind ?? "?"} textLen=${rawText.length} chunk#${chunksSent + 1}`
+        );
         if (!rawText.trim()) return;
         if (!account.canSendActive || !openKfId) return;
 
