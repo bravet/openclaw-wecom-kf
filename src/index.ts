@@ -14,7 +14,7 @@
 import type { OpenClawPluginApi } from "./types.js";
 import { wecomKfPlugin } from "./channel.js";
 import { setWecomKfRuntime } from "./runtime.js";
-import { handleWecomKfWebhookRequest, handleWecomKfRoute } from "./webhook.js";
+import { handleWecomKfRoute } from "./webhook.js";
 
 // ─── Config & Runtime ────────────────────────────────────────
 export { DEFAULT_ACCOUNT_ID, resolveAccount, listAccountIds } from "./config.js";
@@ -31,18 +31,7 @@ export { WecomKfClient, WecomKfApiError, stripMarkdown, splitMessageByBytes } fr
 export { registerHandler, getHandler, extractContent, enrichMessage } from "./handlers/registry.js";
 
 // ─── Webhook ─────────────────────────────────────────────────
-export { handleWecomKfWebhookRequest, handleWecomKfRoute, registerWebhookTarget } from "./webhook.js";
-
-// ─── Legacy API (deprecated — use WecomKfClient instead) ─────
-export {
-  getAccessToken,
-  clearAccessTokenCache,
-  clearAllAccessTokenCache,
-  sendKfMessage,
-  sendKfTextMessage,
-  sendKfWelcomeMessage,
-  syncMessages,
-} from "./api.js";
+export { handleWecomKfRoute, registerWebhookTarget } from "./webhook.js";
 
 // ─── Types ───────────────────────────────────────────────────
 export type {
@@ -51,7 +40,6 @@ export type {
   ResolvedWecomKfAccount,
   PluginConfig,
   OpenClawPluginApi,
-  MoltbotPluginApi,
   SyncMsgItem,
   SyncMsgResponse,
   KfSendMsgParams,
@@ -81,7 +69,7 @@ const plugin = {
     }
     api.registerChannel({ plugin: wecomKfPlugin });
 
-    // Prefer new registerHttpRoute API, fallback to legacy
+    // Register HTTP route for webhook
     if (api.registerHttpRoute) {
       api.registerHttpRoute({
         path: "/wecom-kf",
@@ -89,8 +77,6 @@ const plugin = {
         match: "prefix",
         handler: handleWecomKfRoute,
       });
-    } else if (api.registerHttpHandler) {
-      api.registerHttpHandler(handleWecomKfWebhookRequest);
     }
   },
 };

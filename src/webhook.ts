@@ -324,7 +324,7 @@ async function pullAndDispatchMessages(
 
 // ─── Main HTTP Handler ──────────────────────────────────────
 
-export async function handleWecomKfWebhookRequest(
+async function handleWecomKfWebhookRequest(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<boolean> {

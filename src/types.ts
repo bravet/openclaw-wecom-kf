@@ -314,20 +314,6 @@ export interface PluginRuntime {
   [key: string]: unknown;
 }
 
-// ─── Moltbot Plugin API ─────────────────────────────────────
-export interface MoltbotPluginApi {
-  registerChannel: (opts: { plugin: unknown }) => void;
-  registerHttpHandler?: (
-    handler: (
-      req: IncomingMessage,
-      res: ServerResponse
-    ) => Promise<boolean> | boolean
-  ) => void;
-  runtime?: unknown;
-  config?: PluginConfig;
-  [key: string]: unknown;
-}
-
 // ─── Type Guards & Helpers ──────────────────────────────────
 
 const MEDIA_MSG_TYPES = new Set(["image", "voice", "video", "file"]);
@@ -383,10 +369,6 @@ export interface OpenClawPluginApi {
     match?: string;
     handler: (ctx: HttpRouteContext) => Promise<void> | void;
   }) => void;
-  /** @deprecated use registerHttpRoute */
-  registerHttpHandler?: (
-    handler: (req: IncomingMessage, res: ServerResponse) => Promise<boolean> | boolean
-  ) => void;
   runtime?: unknown;
   config?: PluginConfig;
   [key: string]: unknown;
