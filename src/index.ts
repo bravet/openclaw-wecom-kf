@@ -11,7 +11,8 @@
  * - stripMarkdown: Markdown 转纯文本
  */
 
-import type { OpenClawPluginApi } from "./types.js";
+import type { OpenClawPluginApi, PluginConfig } from "./types.js";
+import type { IncomingMessage, ServerResponse } from "http";
 import { wecomKfPlugin } from "./channel.js";
 import { setWecomKfRuntime } from "./runtime.js";
 import { handleWecomKfRoute } from "./webhook.js";
@@ -76,14 +77,42 @@ const plugin = {
     }
     api.registerChannel({ plugin: wecomKfPlugin });
 
-    // Register HTTP route for webhook
+    // Register HTTP routes for webhook
     if (api.registerHttpRoute) {
-      api.registerHttpRoute({
-        path: "/wecom-kf",
-        auth: "none",
-        match: "prefix",
-        handler: handleWecomKfRoute,
-      });
+      // Adapter: framework calls handler(req, res), we construct HttpRouteContext
+      const routeHandler = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
+        const url = new URL(req.url ?? "/", "http://localhost");
+        await handleWecomKfRoute({
+          req,
+          res,
+          path: url.pathname,
+          query: url.searchParams,
+        });
+        // Return true if response was sent (headers sent or stream ended)
+        return res.writableEnded || res.headersSent;
+      };
+
+      // Collect all webhook paths from config
+      const paths = new Set<string>();
+      paths.add("/wecom-kf"); // default fallback
+      const cfg = api.config as PluginConfig | undefined;
+      const kfCfg = cfg?.channels?.["wecom-kf"];
+      if (kfCfg?.webhookPath) paths.add(kfCfg.webhookPath);
+      if (kfCfg?.accounts) {
+        for (const acc of Object.values(kfCfg.accounts)) {
+          if (acc?.webhookPath) paths.add(acc.webhookPath);
+        }
+      }
+
+      // Register each path as an exact-match route with plugin-level auth
+      for (const p of paths) {
+        api.registerHttpRoute({
+          path: p,
+          auth: "plugin",
+          match: "exact",
+          handler: routeHandler,
+        });
+      }
     }
   },
 };

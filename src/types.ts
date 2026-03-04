@@ -421,9 +421,10 @@ export interface OpenClawPluginApi {
   registerChannel: (opts: { plugin: unknown }) => void;
   registerHttpRoute?: (opts: {
     path: string;
-    auth?: string;
-    match?: string;
-    handler: (ctx: HttpRouteContext) => Promise<void> | void;
+    auth: "gateway" | "plugin";
+    match?: "exact" | "prefix";
+    handler: (req: IncomingMessage, res: ServerResponse) => Promise<boolean | void> | boolean | void;
+    replaceExisting?: boolean;
   }) => void;
   runtime?: unknown;
   config?: PluginConfig;
