@@ -10,7 +10,7 @@
 ### 安装依赖
 
 ```bash
-npm install
+npm install --include=dev
 ```
 
 ### 构建
