@@ -327,3 +327,74 @@ export interface MoltbotPluginApi {
   config?: PluginConfig;
   [key: string]: unknown;
 }
+
+// ─── Type Guards & Helpers ──────────────────────────────────
+
+const MEDIA_MSG_TYPES = new Set(["image", "voice", "video", "file"]);
+
+export function isMediaMessage(msgtype: string): boolean {
+  return MEDIA_MSG_TYPES.has(msgtype);
+}
+
+export function isEventMessage(msgtype: string): boolean {
+  return msgtype === "event";
+}
+
+export function getMediaId(msg: SyncMsgItem): string | undefined {
+  switch (msg.msgtype) {
+    case "image": return (msg as SyncMsgImage).image.media_id;
+    case "voice": return (msg as SyncMsgVoice).voice.media_id;
+    case "video": return (msg as SyncMsgVideo).video.media_id;
+    case "file":  return (msg as SyncMsgFile).file.media_id;
+    default: return undefined;
+  }
+}
+
+// ─── New API Types ──────────────────────────────────────────
+
+export type SessionState = {
+  service_state: number; // 0=未处理 1=机器人 2=排队 3=人工 4=已结束
+  servicer_userid?: string;
+};
+
+export type CustomerInfo = {
+  external_userid: string;
+  nickname?: string;
+  avatar?: string;
+  gender?: number;
+  unionid?: string;
+};
+
+export type MediaType = "image" | "voice" | "video" | "file";
+
+export type DownloadResult = {
+  ok: boolean;
+  path?: string;
+  error?: string;
+};
+
+// ─── OpenClaw Plugin API (latest) ───────────────────────────
+
+export interface OpenClawPluginApi {
+  registerChannel: (opts: { plugin: unknown }) => void;
+  registerHttpRoute?: (opts: {
+    path: string;
+    auth?: string;
+    match?: string;
+    handler: (ctx: HttpRouteContext) => Promise<void> | void;
+  }) => void;
+  /** @deprecated use registerHttpRoute */
+  registerHttpHandler?: (
+    handler: (req: IncomingMessage, res: ServerResponse) => Promise<boolean> | boolean
+  ) => void;
+  runtime?: unknown;
+  config?: PluginConfig;
+  [key: string]: unknown;
+}
+
+export type HttpRouteContext = {
+  req: IncomingMessage;
+  res: ServerResponse;
+  path: string;
+  query: URLSearchParams;
+};

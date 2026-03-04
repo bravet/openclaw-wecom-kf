@@ -5,7 +5,7 @@
  */
 
 import type { ResolvedWecomKfAccount } from "./types.js";
-import { sendKfTextMessage, sendKfMessage, uploadMedia } from "./api.js";
+import { WecomKfClient } from "./client.js";
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -69,10 +69,11 @@ export async function sendWecomKfDM(
 
   const userId = parseExternalUserId(externalUserId);
   const results: SendResult[] = [];
+  const client = new WecomKfClient(account);
 
   if (options.text?.trim()) {
     try {
-      const result = await sendKfTextMessage(account, userId, options.text, resolvedOpenKfId);
+      const result = await client.sendText(userId, options.text, resolvedOpenKfId);
       results.push({
         ok: result.errcode === 0,
         msgid: result.msgid,
@@ -106,15 +107,14 @@ export async function sendWecomKfDM(
         buffer = await fs.promises.readFile(mediaUrl);
       }
 
-      const mediaId = await uploadMedia(
-        account,
+      const mediaId = await client.uploadMedia(
         buffer,
         "image.jpg",
         contentType,
         "image"
       );
 
-      const result = await sendKfMessage(account, {
+      const result = await client.sendMessage({
         touser: userId,
         open_kfid: resolvedOpenKfId,
         msgtype: "image",

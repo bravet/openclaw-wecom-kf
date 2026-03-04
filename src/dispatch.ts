@@ -2,7 +2,7 @@
  * 微信客服消息分发到 OpenClaw 运行时
  *
  * 构建 inbound context → resolveAgentRoute → dispatchReplyWithBufferedBlockDispatcher
- * 响应通过 sendKfTextMessage 发送回客户。
+ * 响应通过 WecomKfClient.sendText 发送回客户。
  */
 
 import type {
@@ -12,8 +12,27 @@ import type {
   SyncMsgItem,
 } from "./types.js";
 import { resolveDmPolicy, resolveAllowFrom, checkDmPolicy } from "./config.js";
-import { createLogger, sendKfTextMessage, stripMarkdown, splitMessageByBytes } from "./api.js";
-import { enrichInboundWithMedia } from "./bot.js";
+import { WecomKfClient } from "./client.js";
+import { enrichMessage } from "./handlers/registry.js";
+
+// Import all handlers to trigger registration
+import "./handlers/text.js";
+import "./handlers/media.js";
+import "./handlers/location.js";
+import "./handlers/event.js";
+
+// ─── Local Logger ───────────────────────────────────────────
+
+function createLocalLogger(prefix: string, fns: { log?: (m: string) => void; error?: (m: string) => void }) {
+  const logFn = fns.log ?? console.log;
+  const errFn = fns.error ?? console.error;
+  return {
+    debug: (m: string) => logFn(`[${prefix}] [DEBUG] ${m}`),
+    info: (m: string) => logFn(`[${prefix}] ${m}`),
+    warn: (m: string) => logFn(`[${prefix}] [WARN] ${m}`),
+    error: (m: string) => errFn(`[${prefix}] [ERROR] ${m}`),
+  };
+}
 
 export async function dispatchKfMessage(params: {
   cfg: PluginConfig;
@@ -25,7 +44,7 @@ export async function dispatchKfMessage(params: {
 }): Promise<void> {
   const { cfg, account, msg, core } = params;
   const safeCfg = cfg ?? {};
-  const logger = createLogger("wecom-kf", {
+  const logger = createLocalLogger("wecom-kf", {
     log: params.log,
     error: params.error,
   });
@@ -60,8 +79,14 @@ export async function dispatchKfMessage(params: {
     peer: { kind: "dm", id: senderId },
   });
 
-  // Enrich message content with media
-  const enriched = await enrichInboundWithMedia(msg, account, logger);
+  // Create client for API operations
+  const client = new WecomKfClient(account, {
+    log: params.log,
+    error: params.error,
+  });
+
+  // Enrich message content with media (using handler registry)
+  const enriched = await enrichMessage(msg, client, account);
   const rawBody = enriched.text;
 
   const fromLabel = `user:${senderId}`;
@@ -206,16 +231,26 @@ export async function dispatchKfMessage(params: {
   if (responseChunks.length > 0 && account.canSendActive) {
     const fullResponse = responseChunks.join("\n\n").trim();
     if (fullResponse) {
-      try {
-        await sendKfTextMessage(account, senderId, fullResponse, msgOpenKfId);
-        logger.info(
-          `reply sent to ${senderId}: ${fullResponse.length} chars`
-        );
-      } catch (err) {
-        logger.error(`failed to send reply: ${String(err)}`);
+      const openKfId = msgOpenKfId ?? account.openKfId;
+      if (openKfId) {
+        try {
+          const result = await client.sendText(senderId, fullResponse, openKfId);
+          if (result.errcode === 0) {
+            logger.info(`reply sent to ${senderId}: ${fullResponse.length} chars, ${result.sentChunks}/${result.chunks} chunks in ${result.elapsedMs}ms`);
+          } else {
+            logger.error(`reply failed: errcode=${result.errcode} ${result.errmsg ?? ""}`);
+          }
+        } catch (err) {
+          logger.error(`failed to send reply: ${String(err)}`);
+        }
+      } else {
+        logger.warn(`cannot send reply: no openKfId available`);
       }
     }
   }
 
-  await enriched.cleanup();
+  // Prune old media files (non-blocking)
+  client.pruneInboundMedia().catch((err) => {
+    logger.warn(`media prune failed: ${String(err)}`);
+  });
 }

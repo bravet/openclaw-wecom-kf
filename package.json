@@ -1,6 +1,6 @@
 {
   "name": "openclaw-wecom-kf",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "type": "module",
   "description": "OpenClaw WeCom Customer Service (微信客服) channel plugin",
   "license": "MIT",
@@ -9,29 +9,6 @@
     "openclaw.plugin.json"
   ],
   "openclaw": {
-    "extensions": [
-      "./dist/index.js"
-    ],
-    "channel": {
-      "id": "wecom-kf",
-      "label": "WeCom KF",
-      "selectionLabel": "WeCom Customer Service (微信客服)",
-      "docsPath": "/channels/wecom-kf",
-      "blurb": "微信客服渠道，支持外部微信用户咨询",
-      "aliases": [
-        "weixin-kf",
-        "微信客服",
-        "企微客服"
-      ],
-      "order": 83
-    },
-    "install": {
-      "npmSpec": "openclaw-wecom-kf",
-      "localPath": ".",
-      "defaultChoice": "npm"
-    }
-  },
-  "moltbot": {
     "extensions": [
       "./dist/index.js"
     ],
@@ -65,18 +42,21 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "tsup": "^8.2.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "vitest": "^4.0.18"
   },
   "peerDependencies": {
-    "moltbot": ">=0.1.0"
+    "openclaw": ">=2026.1.0"
   },
   "peerDependenciesMeta": {
-    "moltbot": {
+    "openclaw": {
       "optional": true
     }
   },

@@ -13,16 +13,20 @@ import { readFile, writeFile, mkdir } from "fs/promises";
 import { homedir } from "os";
 import { join, dirname } from "path";
 import type {
-  PluginConfig,
-  ResolvedWecomKfAccount,
-  SyncMsgItem,
-  SyncMsgEvent,
   WebhookTarget,
+  HttpRouteContext,
 } from "./types.js";
 import { verifyWecomSignature, decryptWecomEncrypted } from "./crypto.js";
-import { syncMessages, sendKfWelcomeMessage, createLogger } from "./api.js";
+import { WecomKfClient } from "./client.js";
+import { getHandler } from "./handlers/registry.js";
 import { tryGetWecomKfRuntime } from "./runtime.js";
 import { dispatchKfMessage } from "./dispatch.js";
+
+// Import all handlers to trigger registration
+import "./handlers/text.js";
+import "./handlers/media.js";
+import "./handlers/location.js";
+import "./handlers/event.js";
 
 // ─── Webhook Target Registry ────────────────────────────────
 
@@ -64,7 +68,6 @@ const CURSOR_FILE = join(
   "cursors.json"
 );
 let cursorsLoaded = false;
-let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function loadCursors(): Promise<void> {
   if (cursorsLoaded) return;
@@ -80,18 +83,15 @@ async function loadCursors(): Promise<void> {
   cursorsLoaded = true;
 }
 
-function scheduleSaveCursors(): void {
-  if (saveTimer) return;
-  saveTimer = setTimeout(async () => {
-    saveTimer = null;
-    try {
-      const obj = Object.fromEntries(cursorStore);
-      await mkdir(dirname(CURSOR_FILE), { recursive: true });
-      await writeFile(CURSOR_FILE, JSON.stringify(obj, null, 2));
-    } catch {
-      // best-effort; will retry on next cursor update
-    }
-  }, 1000);
+async function saveCursorsNow(): Promise<void> {
+  try {
+    const obj = Object.fromEntries(cursorStore);
+    await mkdir(dirname(CURSOR_FILE), { recursive: true });
+    await writeFile(CURSOR_FILE, JSON.stringify(obj, null, 2));
+  } catch (err) {
+    // Log but don't throw — cursor save failure shouldn't crash the process
+    console.error(`[wecom-kf] [WARN] failed to save cursors: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 function getCursorKey(accountId: string, openKfId?: string): string {
@@ -177,6 +177,19 @@ function parseXmlBody(raw: string): Record<string, string> {
   return result;
 }
 
+// ─── Local Logger ───────────────────────────────────────────
+
+function createLocalLogger(prefix: string, fns: { log?: (m: string) => void; error?: (m: string) => void }) {
+  const logFn = fns.log ?? console.log;
+  const errFn = fns.error ?? console.error;
+  return {
+    debug: (m: string) => logFn(`[${prefix}] [DEBUG] ${m}`),
+    info: (m: string) => logFn(`[${prefix}] ${m}`),
+    warn: (m: string) => logFn(`[${prefix}] [WARN] ${m}`),
+    error: (m: string) => errFn(`[${prefix}] [ERROR] ${m}`),
+  };
+}
+
 // ─── Pull and Dispatch Messages ─────────────────────────────
 
 async function pullAndDispatchMessages(
@@ -184,7 +197,7 @@ async function pullAndDispatchMessages(
   callbackToken?: string,
   callbackOpenKfId?: string
 ): Promise<void> {
-  const logger = createLogger("wecom-kf", {
+  const logger = createLocalLogger("wecom-kf", {
     log: target.runtime.log,
     error: target.runtime.error,
   });
@@ -217,6 +230,12 @@ async function pullAndDispatchMessages(
     );
   }
 
+  // Create WecomKfClient instance for API calls
+  const client = new WecomKfClient(account, {
+    log: target.runtime.log,
+    error: target.runtime.error,
+  });
+
   let hasMore = true;
 
   while (hasMore) {
@@ -235,12 +254,12 @@ async function pullAndDispatchMessages(
       }
       syncParams.open_kfid = effectiveOpenKfId;
 
-      const resp = await syncMessages(account, syncParams);
+      const resp = await client.syncMessages(syncParams);
 
       if (resp.next_cursor) {
         cursorStore.set(cursorKey, resp.next_cursor);
         cursor = resp.next_cursor;
-        scheduleSaveCursors();
+        await saveCursorsNow();
       }
       hasMore = resp.has_more === 1;
 
@@ -263,9 +282,12 @@ async function pullAndDispatchMessages(
           continue;
         }
 
-        // Handle events
+        // Handle events via handler registry
         if (msg.msgtype === "event") {
-          await handleKfEvent(msg as SyncMsgEvent, account, logger);
+          const handler = getHandler("event");
+          if (handler?.handle) {
+            await handler.handle(msg, client, account, logger);
+          }
           continue;
         }
 
@@ -300,55 +322,6 @@ async function pullAndDispatchMessages(
   }
 }
 
-// ─── Event Handling ─────────────────────────────────────────
-
-async function handleKfEvent(
-  msg: SyncMsgEvent,
-  account: ResolvedWecomKfAccount,
-  logger: ReturnType<typeof createLogger>
-): Promise<void> {
-  const eventType = msg.event?.event_type ?? "";
-
-  if (eventType === "enter_session") {
-    // Customer enters session - send welcome message
-    const welcomeCode = msg.event?.welcome_code;
-    const welcomeText = account.config.welcomeText?.trim();
-
-    if (welcomeCode && welcomeText) {
-      try {
-        await sendKfWelcomeMessage(account, welcomeCode, "text", {
-          text: { content: welcomeText },
-        });
-        logger.info(
-          `welcome sent to ${msg.external_userid} via welcome_code`
-        );
-      } catch (err) {
-        logger.error(`failed to send welcome: ${String(err)}`);
-      }
-    }
-    return;
-  }
-
-  if (eventType === "msg_send_fail") {
-    const failType = msg.event?.fail_type;
-    const failMsgId = msg.event?.fail_msgid;
-    logger.warn(
-      `msg_send_fail: msgid=${failMsgId}, fail_type=${failType}`
-    );
-    return;
-  }
-
-  if (
-    eventType === "servicer_status_change" ||
-    eventType === "session_status_change"
-  ) {
-    logger.info(`event: ${eventType} for ${msg.external_userid ?? "?"}`);
-    return;
-  }
-
-  logger.debug(`unhandled KF event: ${eventType}`);
-}
-
 // ─── Main HTTP Handler ──────────────────────────────────────
 
 export async function handleWecomKfWebhookRequest(
@@ -365,7 +338,7 @@ export async function handleWecomKfWebhookRequest(
   const signature =
     query.get("msg_signature") ?? query.get("signature") ?? "";
   const primary = targets[0]!;
-  const logger = createLogger("wecom-kf", {
+  const logger = createLocalLogger("wecom-kf", {
     log: primary.runtime.log,
     error: primary.runtime.error,
   });
@@ -544,4 +517,11 @@ export async function handleWecomKfWebhookRequest(
   });
 
   return true;
+}
+
+// ─── Route Handler for registerHttpRoute API ────────────────
+
+export async function handleWecomKfRoute(ctx: HttpRouteContext): Promise<void> {
+  // Delegate to existing handler, ignore return value
+  await handleWecomKfWebhookRequest(ctx.req, ctx.res);
 }

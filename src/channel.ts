@@ -12,15 +12,9 @@ import {
   resolveDefaultAccountId,
   resolveAllowFrom,
 } from "./config.js";
-import {
-  sendKfTextMessage,
-  sendKfMessage,
-  uploadMedia,
-  stripMarkdown,
-  createLogger,
-} from "./api.js";
+import { WecomKfClient } from "./client.js";
 import { setWecomKfRuntime } from "./runtime.js";
-import { registerWebhookTarget, handleWecomKfWebhookRequest } from "./webhook.js";
+import { registerWebhookTarget } from "./webhook.js";
 
 // ─── Helpers ────────────────────────────────────────────────
 
@@ -341,12 +335,8 @@ export const wecomKfPlugin = {
         };
       }
       try {
-        const result = await sendKfTextMessage(
-          account,
-          parsed.userId,
-          params.text,
-          account.openKfId
-        );
+        const client = new WecomKfClient(account);
+        const result = await client.sendText(parsed.userId, params.text, account.openKfId);
         return {
           channel: "wecom-kf",
           ok: result.errcode === 0,
@@ -404,10 +394,12 @@ export const wecomKfPlugin = {
         };
       }
       try {
+        const client = new WecomKfClient(account);
+
         // Send caption text first if present
         if (params.text?.trim()) {
           try {
-            await sendKfTextMessage(account, parsed.userId, params.text, account.openKfId);
+            await client.sendText(parsed.userId, params.text, account.openKfId);
           } catch {
             // Continue even if caption fails
           }
@@ -441,15 +433,14 @@ export const wecomKfPlugin = {
         const isImage = mime.startsWith("image/");
         const mediaType = isImage ? "image" : "file";
 
-        const mediaId = await uploadMedia(
-          account,
+        const mediaId = await client.uploadMedia(
           buffer,
           "media",
           contentType,
           mediaType
         );
 
-        const result = await sendKfMessage(account, {
+        const result = await client.sendMessage({
           touser: parsed.userId,
           open_kfid: account.openKfId,
           msgtype: mediaType,

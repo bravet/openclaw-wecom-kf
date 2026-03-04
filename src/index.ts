@@ -4,22 +4,36 @@
  *
  * 导出:
  * - wecomKfPlugin: ChannelPlugin 实现
+ * - WecomKfClient: 统一 API 客户端
  * - DEFAULT_ACCOUNT_ID: 默认账户 ID
  * - setWecomKfRuntime / getWecomKfRuntime: 运行时管理
- * - sendKfTextMessage: 主动发送文本消息
- * - getAccessToken: 获取 Access Token
  * - sendWecomKfDM: 发送私聊消息
  * - stripMarkdown: Markdown 转纯文本
  */
 
-import type { IncomingMessage, ServerResponse } from "http";
-import type { MoltbotPluginApi } from "./types.js";
+import type { OpenClawPluginApi } from "./types.js";
 import { wecomKfPlugin } from "./channel.js";
-import { setWecomKfRuntime, getWecomKfRuntime } from "./runtime.js";
-import { handleWecomKfWebhookRequest } from "./webhook.js";
+import { setWecomKfRuntime } from "./runtime.js";
+import { handleWecomKfWebhookRequest, handleWecomKfRoute } from "./webhook.js";
 
-// Re-exports
+// ─── Config & Runtime ────────────────────────────────────────
 export { DEFAULT_ACCOUNT_ID, resolveAccount, listAccountIds } from "./config.js";
+export { setWecomKfRuntime, getWecomKfRuntime, tryGetWecomKfRuntime } from "./runtime.js";
+
+// ─── Channel & Send ──────────────────────────────────────────
+export { wecomKfPlugin } from "./channel.js";
+export { sendWecomKfDM } from "./send.js";
+
+// ─── Client (new unified API) ────────────────────────────────
+export { WecomKfClient, WecomKfApiError, stripMarkdown, splitMessageByBytes } from "./client.js";
+
+// ─── Handler Registry ────────────────────────────────────────
+export { registerHandler, getHandler, extractContent, enrichMessage } from "./handlers/registry.js";
+
+// ─── Webhook ─────────────────────────────────────────────────
+export { handleWecomKfWebhookRequest, handleWecomKfRoute, registerWebhookTarget } from "./webhook.js";
+
+// ─── Legacy API (deprecated — use WecomKfClient instead) ─────
 export {
   getAccessToken,
   clearAccessTokenCache,
@@ -28,23 +42,26 @@ export {
   sendKfTextMessage,
   sendKfWelcomeMessage,
   syncMessages,
-  stripMarkdown,
-  splitMessageByBytes,
 } from "./api.js";
-export { setWecomKfRuntime, getWecomKfRuntime, tryGetWecomKfRuntime } from "./runtime.js";
-export { wecomKfPlugin } from "./channel.js";
-export { sendWecomKfDM } from "./send.js";
+
+// ─── Types ───────────────────────────────────────────────────
 export type {
   WecomKfConfig,
   WecomKfAccountConfig,
   ResolvedWecomKfAccount,
   PluginConfig,
+  OpenClawPluginApi,
   MoltbotPluginApi,
   SyncMsgItem,
   SyncMsgResponse,
   KfSendMsgParams,
   KfSendMsgResult,
   WecomKfDmPolicy,
+  HttpRouteContext,
+  SessionState,
+  CustomerInfo,
+  MediaType,
+  DownloadResult,
 } from "./types.js";
 
 // ─── Plugin Entry ───────────────────────────────────────────
@@ -58,12 +75,21 @@ const plugin = {
     additionalProperties: false,
     properties: {},
   },
-  register(api: MoltbotPluginApi) {
+  register(api: OpenClawPluginApi) {
     if (api.runtime) {
       setWecomKfRuntime(api.runtime as any);
     }
     api.registerChannel({ plugin: wecomKfPlugin });
-    if (api.registerHttpHandler) {
+
+    // Prefer new registerHttpRoute API, fallback to legacy
+    if (api.registerHttpRoute) {
+      api.registerHttpRoute({
+        path: "/wecom-kf",
+        auth: "none",
+        match: "prefix",
+        handler: handleWecomKfRoute,
+      });
+    } else if (api.registerHttpHandler) {
       api.registerHttpHandler(handleWecomKfWebhookRequest);
     }
   },
