@@ -30,6 +30,8 @@ export type WecomKfAccountConfig = {
   };
   /** 欢迎文本 */
   welcomeText?: string;
+  /** 收到消息后的即时确认文本（设为空字符串可禁用） */
+  thinkingText?: string;
   /** DM 策略 */
   dmPolicy?: WecomKfDmPolicy;
   /** DM 允许列表 */

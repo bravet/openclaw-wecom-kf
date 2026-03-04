@@ -209,8 +209,27 @@ export async function dispatchKfMessage(params: {
     });
   }
 
-  // Collect full response then send
-  const responseChunks: string[] = [];
+  // Resolve openKfId for reply
+  const openKfId = msgOpenKfId ?? account.openKfId;
+
+  // ─── Immediate acknowledgment ──────────────────────────────
+  const thinkingText = accountConfig.thinkingText ?? "收到，让我想想...";
+  if (thinkingText && account.canSendActive && openKfId) {
+    try {
+      await client.sendMessage({
+        touser: senderId,
+        open_kfid: openKfId,
+        msgtype: "text",
+        text: { content: thinkingText },
+      });
+    } catch (err) {
+      logger.warn(`ack message failed: ${String(err)}`);
+    }
+  }
+
+  // ─── Stream reply chunks ───────────────────────────────────
+  let chunksSent = 0;
+  const startMs = Date.now();
 
   await channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx: ctxPayload,
@@ -219,7 +238,17 @@ export async function dispatchKfMessage(params: {
       deliver: async (payload) => {
         const rawText = payload.text ?? "";
         if (!rawText.trim()) return;
-        responseChunks.push(rawText);
+        if (!account.canSendActive || !openKfId) return;
+        try {
+          const result = await client.sendText(senderId, rawText, openKfId);
+          if (result.errcode === 0) {
+            chunksSent += result.sentChunks;
+          } else {
+            logger.error(`stream chunk failed: errcode=${result.errcode} ${result.errmsg ?? ""}`);
+          }
+        } catch (err) {
+          logger.error(`stream chunk failed: ${String(err)}`);
+        }
       },
       onError: (err, info) => {
         logger.error(`${info.kind} reply failed: ${String(err)}`);
@@ -227,26 +256,9 @@ export async function dispatchKfMessage(params: {
     },
   });
 
-  // Send coalesced response back to customer
-  if (responseChunks.length > 0 && account.canSendActive) {
-    const fullResponse = responseChunks.join("\n\n").trim();
-    if (fullResponse) {
-      const openKfId = msgOpenKfId ?? account.openKfId;
-      if (openKfId) {
-        try {
-          const result = await client.sendText(senderId, fullResponse, openKfId);
-          if (result.errcode === 0) {
-            logger.info(`reply sent to ${senderId}: ${fullResponse.length} chars, ${result.sentChunks}/${result.chunks} chunks in ${result.elapsedMs}ms`);
-          } else {
-            logger.error(`reply failed: errcode=${result.errcode} ${result.errmsg ?? ""}`);
-          }
-        } catch (err) {
-          logger.error(`failed to send reply: ${String(err)}`);
-        }
-      } else {
-        logger.warn(`cannot send reply: no openKfId available`);
-      }
-    }
+  const elapsedMs = Date.now() - startMs;
+  if (chunksSent > 0) {
+    logger.info(`streaming reply to ${senderId}: ${chunksSent} chunks in ${elapsedMs}ms`);
   }
 
   // Prune old media files (non-blocking)

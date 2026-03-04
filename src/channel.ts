@@ -71,6 +71,7 @@ const WecomKfConfigJsonSchema = {
         },
       },
       welcomeText: { type: "string" },
+      thinkingText: { type: "string" },
       dmPolicy: {
         type: "string",
         enum: ["open", "pairing", "allowlist", "disabled"],
@@ -103,6 +104,7 @@ const WecomKfConfigJsonSchema = {
               },
             },
             welcomeText: { type: "string" },
+            thinkingText: { type: "string" },
             dmPolicy: {
               type: "string",
               enum: ["open", "pairing", "allowlist", "disabled"],
